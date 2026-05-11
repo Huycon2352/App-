@@ -1,75 +1,171 @@
-name: "Terraform Destroy EKS & VPC"
+name: Full Infrastructure Destroy
 
 on:
   workflow_dispatch:
     inputs:
       confirm_destroy:
-        description: 'Gõ "DESTROY" để xác nhận xóa toàn bộ hạ tầng'
+        description: "Type DESTROY to confirm"
         required: true
-        default: "no"
+        default: "NO"
 
 env:
-  AWS_REGION: "ap-southeast-1"
-  EKS_CLUSTER_NAME: "voting-cluster"
-  TF_WORKING_DIR: "./infrastructure/environments/dev"
+  AWS_REGION: ap-southeast-1
 
 jobs:
   destroy:
-    name: "Clean up and Destroy"
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
     if: github.event.inputs.confirm_destroy == 'DESTROY'
 
-    defaults:
-      run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
-      - uses: actions/checkout@v4
+      # =========================================================
+      # CHECKOUT
+      # =========================================================
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: 🔐 Configure AWS Credentials
+      # =========================================================
+      # AWS AUTH
+      # =========================================================
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      # =========================================================
+      # TERRAFORM
+      # =========================================================
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - name: 📦 Terraform Init
-        run: terraform init
+      # =========================================================
+      # INSTALL KUBECTL
+      # =========================================================
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
 
-      - name: ☸️ Connect to EKS Cluster
+      # =========================================================
+      # INSTALL JQ
+      # =========================================================
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # =========================================================
+      # CONNECT MANAGEMENT CLUSTER
+      # =========================================================
+      - name: Connect Management Cluster
+        continue-on-error: true
         run: |
-          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }} || echo "Cluster already gone"
+          aws eks update-kubeconfig \
+            --name management-cluster \
+            --region $AWS_REGION
 
-      # BƯỚC 1: Dọn dẹp K8s TRƯỚC KHI hủy diệt Cluster
-      - name: 🧹 Clean up Kubernetes Resources
+      # =========================================================
+      # REMOVE ARGOCD FINALIZERS
+      # =========================================================
+      - name: Remove ArgoCD Finalizers
+        continue-on-error: true
         run: |
-          # 1. Gỡ bỏ finalizers của các Application trước
-          kubectl get applications.argoproj.io -A -o json | jq '(.items[].metadata.finalizers // []) |= []' | kubectl apply -f - || true
+          kubectl get applications.argoproj.io -n argocd -o name | while read app; do
+            kubectl patch $app -n argocd \
+              --type merge \
+              -p '{"metadata":{"finalizers":[]}}'
+          done
 
-          # 2. Xóa tất cả application
-          kubectl delete applications.argoproj.io --all -n argocd --timeout=1m || true
-
-          # 3. Xóa các tài nguyên gây tốn tiền (SVC, PVC)
-          kubectl delete svc --all --all-namespaces --timeout=2m || true
-          kubectl delete pvc --all --all-namespaces --timeout=2m || true
-
-          # 4. Nếu namespace argocd vẫn lì lợm, ép nó xóa luôn
-          kubectl delete ns argocd --timeout=30s || kubectl patch ns argocd -p '{"spec":{"finalizers":null}}' --type merge || true
-
-          sleep 60
-
-      # BƯỚC 2: Xóa Cluster (Dùng retry để xử lý độ trễ của AWS)
-      - name: 💥 Terraform Destroy
+      # =========================================================
+      # DELETE ARGOCD APPS
+      # =========================================================
+      - name: Delete ArgoCD Applications
+        continue-on-error: true
         run: |
-          # Thử chạy destroy tối đa 3 lần nếu gặp lỗi Dependency (thường do VPC/Subnet còn vướng tài nguyên)
+          kubectl delete applications --all -n argocd --timeout=120s
+
+      # =========================================================
+      # DELETE LOADBALANCERS
+      # =========================================================
+      - name: Delete LoadBalancer Services
+        continue-on-error: true
+        run: |
+          kubectl delete svc --all -A --timeout=120s
+
+      # =========================================================
+      # DELETE PVC
+      # =========================================================
+      - name: Delete PVC
+        continue-on-error: true
+        run: |
+          kubectl delete pvc --all -A --timeout=120s
+
+      # =========================================================
+      # DELETE NAMESPACES
+      # =========================================================
+      - name: Delete Namespaces
+        continue-on-error: true
+        run: |
+          kubectl delete ns argocd dev prod --timeout=120s || true
+
+      # =========================================================
+      # WAIT AWS CLEANUP
+      # =========================================================
+      - name: Wait AWS Cleanup
+        run: sleep 120
+
+      # =========================================================
+      # DESTROY DEV
+      # =========================================================
+      - name: Terraform Destroy Dev
+        working-directory: infrastructure/environments/dev
+        run: |
+          terraform init
+
           terraform destroy -auto-approve || \
-          (echo "Thử lại lần 2 sau 60s..." && sleep 60 && terraform destroy -auto-approve) || \
-          (echo "Thử lại lần cuối sau 120s..." && sleep 120 && terraform destroy -auto-approve)
+          (sleep 60 && terraform destroy -auto-approve)
 
-      # BƯỚC 3: Hậu kiểm (Option)
-      - name: 🕵️ Post-Destroy Check
+      # =========================================================
+      # DESTROY MANAGEMENT
+      # =========================================================
+      - name: Terraform Destroy Management
+        working-directory: infrastructure/environments/management
         run: |
-          echo "Hạ tầng đã được yêu cầu xóa. Hãy kiểm tra Console để chắc chắn không còn ELB hoặc EBS nào 'mồ côi'."
+          terraform init
+
+          terraform destroy -auto-approve || \
+          (sleep 60 && terraform destroy -auto-approve)
+
+      # =========================================================
+      # DESTROY BOOTSTRAP
+      # =========================================================
+      - name: Terraform Destroy Bootstrap
+        working-directory: infrastructure/bootstrap
+        run: |
+          terraform init
+
+          terraform destroy -auto-approve || true
+
+      # =========================================================
+      # VERIFY EKS
+      # =========================================================
+      - name: Verify EKS Deleted
+        continue-on-error: true
+        run: |
+          aws eks list-clusters
+
+      # =========================================================
+      # VERIFY ELB
+      # =========================================================
+      - name: Verify ELB Deleted
+        continue-on-error: true
+        run: |
+          aws elbv2 describe-load-balancers || true
+
+      # =========================================================
+      # VERIFY EBS
+      # =========================================================
+      - name: Verify EBS Deleted
+        continue-on-error: true
+        run: |
+          aws ec2 describe-volumes \
+            --filters Name=status,Values=available
