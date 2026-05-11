@@ -74,7 +74,7 @@ module "eks" {
 
 # IAM Role admin (có thể assume khi cần thêm admin khác)
 resource "aws_iam_role" "eks_admin_role" {
-  name = "${var.environment}-eks-admin-role"
+  name = "${var.enviroment}-eks-admin-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -142,7 +142,7 @@ module "ebs_csi_irsa_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "~> 5.0"
 
-  role_name = "${var.environment}-ebs-csi-role"
+  role_name = "${var.enviroment}-ebs-csi-role"
 
   attach_ebs_csi_policy = true
 
