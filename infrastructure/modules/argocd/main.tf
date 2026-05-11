@@ -41,7 +41,7 @@ resource "time_sleep" "wait_argocd" {
 # Bootstrap App Of Apps
 resource "kubernetes_manifest" "root_app" {
   manifest = yamldecode(
-    file("${path.root}/../../../k8s-gitops/bootstrap/app-of-apps.yaml")
+    file("${path.module}/app-of-apps.yaml")
   )
 
   depends_on = [
