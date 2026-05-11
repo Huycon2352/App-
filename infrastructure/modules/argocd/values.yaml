@@ -9,24 +9,24 @@ configs:
 controller:
   enableStatefulSet: true
 
-additionalApplications:
-  - name: root-app
-    namespace: argocd
-    project: default
+# additionalApplications:
+#   - name: root-app
+#     namespace: argocd
+#     project: default
 
-    source:
-      repoURL: https://github.com/hgiang25/k8s-gitops.git
-      targetRevision: main
-      path: clusters
+#     source:
+#       repoURL: https://github.com/hgiang25/k8s-gitops.git
+#       targetRevision: main
+#       path: clusters
 
-    destination:
-      server: https://kubernetes.default.svc
-      namespace: argocd
+#     destination:
+#       server: https://kubernetes.default.svc
+#       namespace: argocd
 
-    syncPolicy:
-      automated:
-        prune: true
-        selfHeal: true
+#     syncPolicy:
+#       automated:
+#         prune: true
+#         selfHeal: true
 
-      syncOptions:
-        - CreateNamespace=true
+#       syncOptions:
+#         - CreateNamespace=true
