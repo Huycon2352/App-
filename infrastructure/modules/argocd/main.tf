@@ -32,6 +32,8 @@ resource "time_sleep" "wait_for_argocd" {
 }
 
 resource "kubernetes_manifest" "root_app" {
+  provider = kubernetes
+
   depends_on = [time_sleep.wait_for_argocd]
 
   manifest = {
