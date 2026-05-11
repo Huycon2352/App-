@@ -89,7 +89,7 @@ resource "aws_iam_role" "eks_admin_role" {
 }
 
 resource "aws_iam_policy" "eks_admin_limited" {
-  name = "EKSAdminLimitedPolicy"
+  name = "${var.enviroment}-EKSAdminLimitedPolicy"
 
   policy = jsonencode({
     Version = "2012-10-17"
