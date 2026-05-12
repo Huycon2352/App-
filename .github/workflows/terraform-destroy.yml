@@ -111,10 +111,21 @@ jobs:
           (sleep 120 && terraform destroy -auto-approve)
 
       # =========================================================
-      # DESTROY MANAGEMENT CLUSTER
+      # DESTROY ARGOCD
+      # =========================================================
+      - name: Destroy ArgoCD
+        working-directory: infrastructure/environments/management-argocd
+        run: |
+          terraform init
+
+          terraform destroy -auto-approve || \
+          (sleep 120 && terraform destroy -auto-approve)
+
+      # =========================================================
+      # DESTROY MANAGEMENT INFRA
       # =========================================================
       - name: Destroy Management Infrastructure
-        working-directory: infrastructure/environments/management
+        working-directory: infrastructure/environments/management-infra
         run: |
           terraform init
 
