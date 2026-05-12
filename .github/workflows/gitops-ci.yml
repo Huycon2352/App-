@@ -16,85 +16,83 @@ jobs:
   build-and-update:
     runs-on: ubuntu-latest
 
+    env:
+      AWS_REGION: ap-southeast-1
+      ECR_REGISTRY: 248195880649.dkr.ecr.ap-southeast-1.amazonaws.com
+
     steps:
-      # 1. Checkout app repo
-      - name: Checkout
+      # 1. Checkout source code
+      - name: Checkout App Repo
         uses: actions/checkout@v4
 
-      # 2. Login DockerHub
-      # - name: Login Docker Hub
-      #   run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-
-      # 3. Build & Push
-      # - name: Build & Push images
-      #   run: |
-      #     docker build -t ${{ secrets.DOCKER_USERNAME }}/vote-app:${GITHUB_SHA} ./vote
-      #     docker build -t ${{ secrets.DOCKER_USERNAME }}/result-app:${GITHUB_SHA} ./result
-      #     docker build -t ${{ secrets.DOCKER_USERNAME }}/worker-app:${GITHUB_SHA} ./worker
-
-      #     docker push ${{ secrets.DOCKER_USERNAME }}/vote-app:${GITHUB_SHA}
-      #     docker push ${{ secrets.DOCKER_USERNAME }}/result-app:${GITHUB_SHA}
-      #     docker push ${{ secrets.DOCKER_USERNAME }}/worker-app:${GITHUB_SHA}
+      # 2. Configure AWS
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
-          aws-region: ap-southeast-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to ECR
+      # 3. Login ECR
+      - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and Push
-        env:
-          ECR_REGISTRY: 248195880649.dkr.ecr.ap-southeast-1.amazonaws.com
+      # 4. Build Docker images
+      - name: Build Images
         run: |
           docker build -t $ECR_REGISTRY/vote-app:${GITHUB_SHA} ./vote
           docker build -t $ECR_REGISTRY/result-app:${GITHUB_SHA} ./result
           docker build -t $ECR_REGISTRY/worker-app:${GITHUB_SHA} ./worker
 
+      # 5. Push Docker images
+      - name: Push Images
+        run: |
           docker push $ECR_REGISTRY/vote-app:${GITHUB_SHA}
           docker push $ECR_REGISTRY/result-app:${GITHUB_SHA}
           docker push $ECR_REGISTRY/worker-app:${GITHUB_SHA}
 
-      # 4. Clone GitOps repo
-      - name: Clone GitOps repo
+      # 6. Install Kustomize
+      - name: Install Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      # 7. Clone GitOps repo
+      - name: Clone GitOps Repo
         uses: actions/checkout@v4
         with:
           repository: hgiang25/k8s-gitops
           token: ${{ secrets.GITOPS_PAT }}
           path: k8s-gitops
 
-      # 5. Update image tag using Kustomize
+      # 8. Update image tags
       - name: Update image tag
         run: |
           ENV=${{ github.event.inputs.environment }}
+
           cd k8s-gitops/apps/$ENV
 
-          # Kustomize sẽ tự động tìm image có name khớp và đổi newTag thành SHA mới
-          # kustomize edit set image hgyang25/vote-app=hgyang25/vote-app:${GITHUB_SHA}
-          # kustomize edit set image hgyang25/result-app=hgyang25/result-app:${GITHUB_SHA}
-          # kustomize edit set image hgyang25/worker-app=hgyang25/worker-app:${GITHUB_SHA}
+          kustomize edit set image \
+          248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/vote-app=$ECR_REGISTRY/vote-app:${GITHUB_SHA}
 
           kustomize edit set image \
-          248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/vote-app=248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/vote-app:${GITHUB_SHA}
+          248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/result-app=$ECR_REGISTRY/result-app:${GITHUB_SHA}
 
           kustomize edit set image \
-          248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/result-app=248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/result-app:${GITHUB_SHA}
+          248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/worker-app=$ECR_REGISTRY/worker-app:${GITHUB_SHA}
 
-          kustomize edit set image \
-          248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/worker-app=248195880649.dkr.ecr.ap-southeast-1.amazonaws.com/worker-app:${GITHUB_SHA}
-
-      # 6. Commit & push
-      - name: Commit & push
+      # 9. Commit and push GitOps changes
+      - name: Commit and Push
         run: |
           ENV=${{ github.event.inputs.environment }}
+
           cd k8s-gitops
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add .
-          # Thêm --staged vào dòng bên dưới
+
           git diff --staged --quiet || git commit -m "update $ENV image to ${GITHUB_SHA}"
+
           git push origin main
