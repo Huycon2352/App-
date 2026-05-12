@@ -55,35 +55,45 @@ jobs:
         run: |
           aws eks update-kubeconfig \
             --name management-cluster \
-            --region $AWS_REGION
+            --region $AWS_REGION || true
 
       # =========================================================
-      # REMOVE FINALIZERS
+      # REMOVE ARGOCD FINALIZERS
       # =========================================================
       - name: Remove ArgoCD finalizers
         continue-on-error: true
         run: |
-          kubectl get applications.argoproj.io -n argocd -o name 2>/dev/null | while read app; do
-            kubectl patch $app -n argocd \
+          kubectl get applications.argoproj.io \
+            -n argocd \
+            -o name 2>/dev/null | while read app; do
+
+            kubectl patch $app \
+              -n argocd \
               --type merge \
               -p '{"metadata":{"finalizers":[]}}' || true
           done
 
       # =========================================================
-      # DELETE APPS
+      # DELETE ARGOCD APPS
       # =========================================================
       - name: Delete ArgoCD apps
         continue-on-error: true
         run: |
-          kubectl delete applications --all -n argocd --timeout=120s || true
+          kubectl delete applications \
+            --all \
+            -n argocd \
+            --timeout=120s || true
 
       # =========================================================
-      # DELETE LOADBALANCERS
+      # DELETE SERVICES
       # =========================================================
       - name: Delete Kubernetes LoadBalancers
         continue-on-error: true
         run: |
-          kubectl delete svc --all -A --timeout=180s || true
+          kubectl delete svc \
+            --all \
+            -A \
+            --timeout=180s || true
 
       # =========================================================
       # DELETE PVC
@@ -91,16 +101,20 @@ jobs:
       - name: Delete PVC
         continue-on-error: true
         run: |
-          kubectl delete pvc --all -A --timeout=180s || true
+          kubectl delete pvc \
+            --all \
+            -A \
+            --timeout=180s || true
 
       # =========================================================
       # WAIT LOADBALANCERS CLEANUP
       # =========================================================
       - name: Wait for LoadBalancers cleanup
+        continue-on-error: true
         run: |
-          echo "Waiting for LoadBalancers cleanup..."
+          echo "Checking remaining LoadBalancers..."
 
-          for i in {1..40}; do
+          for i in {1..20}; do
             COUNT=$(aws elbv2 describe-load-balancers \
               --query "length(LoadBalancers)" \
               --output text 2>/dev/null || echo 0)
@@ -108,26 +122,22 @@ jobs:
             echo "Remaining LoadBalancers: $COUNT"
 
             if [ "$COUNT" = "0" ]; then
-              echo "All LoadBalancers deleted"
+              echo "No LoadBalancers remaining"
               exit 0
             fi
 
-            sleep 15
+            sleep 10
           done
 
-          echo "Timeout waiting LoadBalancers cleanup"
-
       # =========================================================
-      # DESTROY DEV CLUSTER
+      # DESTROY DEV
       # =========================================================
       - name: Destroy Dev Infrastructure
         working-directory: infrastructure/environments/dev
         continue-on-error: true
         run: |
           terraform init
-
-          terraform destroy -auto-approve || \
-          (sleep 60 && terraform destroy -auto-approve)
+          terraform destroy -auto-approve || true
 
       # =========================================================
       # DESTROY ARGOCD
@@ -137,30 +147,27 @@ jobs:
         continue-on-error: true
         run: |
           terraform init
-
-          terraform destroy -auto-approve || \
-          (sleep 60 && terraform destroy -auto-approve)
+          terraform destroy -auto-approve || true
 
       # =========================================================
-      # DESTROY MANAGEMENT INFRA
+      # DESTROY MANAGEMENT
       # =========================================================
       - name: Destroy Management Infrastructure
         working-directory: infrastructure/environments/management-infra
         continue-on-error: true
         run: |
           terraform init
-
-          terraform destroy -auto-approve || \
-          (sleep 60 && terraform destroy -auto-approve)
+          terraform destroy -auto-approve || true
 
       # =========================================================
       # WAIT ENI CLEANUP
       # =========================================================
       - name: Wait for ENI cleanup
+        continue-on-error: true
         run: |
-          echo "Waiting for ENIs cleanup..."
+          echo "Checking ENIs..."
 
-          for i in {1..60}; do
+          for i in {1..30}; do
             COUNT=$(aws ec2 describe-network-interfaces \
               --filters Name=status,Values=in-use \
               --query "length(NetworkInterfaces)" \
@@ -169,17 +176,15 @@ jobs:
             echo "Remaining ENIs: $COUNT"
 
             if [ "$COUNT" = "0" ]; then
-              echo "All ENIs deleted"
+              echo "No ENIs remaining"
               exit 0
             fi
 
             sleep 10
           done
 
-          echo "Timeout waiting ENIs cleanup"
-
       # =========================================================
-      # FORCE DELETE EC2 INSTANCES
+      # TERMINATE EC2
       # =========================================================
       - name: Force terminate EC2 instances
         continue-on-error: true
@@ -213,10 +218,9 @@ jobs:
       # WAIT NAT CLEANUP
       # =========================================================
       - name: Wait NAT cleanup
+        continue-on-error: true
         run: |
-          echo "Waiting NAT Gateways deletion..."
-
-          for i in {1..40}; do
+          for i in {1..20}; do
             COUNT=$(aws ec2 describe-nat-gateways \
               --filter Name=state,Values=available,pending,deleting \
               --query "length(NatGateways)" \
@@ -225,17 +229,15 @@ jobs:
             echo "Remaining NAT Gateways: $COUNT"
 
             if [ "$COUNT" = "0" ]; then
-              echo "All NAT Gateways deleted"
+              echo "No NAT Gateways remaining"
               exit 0
             fi
 
-            sleep 15
+            sleep 10
           done
 
-          echo "Timeout waiting NAT cleanup"
-
       # =========================================================
-      # RELEASE EIP
+      # RELEASE EIPS
       # =========================================================
       - name: Release Elastic IPs
         continue-on-error: true
@@ -250,57 +252,65 @@ jobs:
           done
 
       # =========================================================
-      # FORCE DELETE REMAINING IAM ROLES
+      # DELETE IAM ROLES + POLICIES
       # =========================================================
       - name: Delete remaining IAM roles and policies
         continue-on-error: true
         run: |
-          # =====================================================
-          # DELETE ADMIN ROLE
-          # =====================================================
-          aws iam detach-role-policy \
-            --role-name management-eks-admin-role \
-            --policy-arn arn:aws:iam::248195880649:policy/management-EKSAdminLimitedPolicy || true
+          ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
 
-          aws iam delete-role \
-            --role-name management-eks-admin-role || true
+          ROLES=(
+            management-eks-admin-role
+            management-ebs-csi-role
+            dev-eks-admin-role
+            dev-ebs-csi-role
+          )
 
-          aws iam delete-policy \
-            --policy-arn arn:aws:iam::248195880649:policy/management-EKSAdminLimitedPolicy || true
+          POLICIES=(
+            management-EKSAdminLimitedPolicy
+            dev-EKSAdminLimitedPolicy
+          )
 
-          # =====================================================
-          # DELETE EBS CSI ROLE
-          # =====================================================
-          ATTACHED_POLICIES=$(aws iam list-attached-role-policies \
-            --role-name management-ebs-csi-role \
-            --query 'AttachedPolicies[*].PolicyArn' \
-            --output text 2>/dev/null || true)
+          # ==========================================
+          # DETACH ALL POLICIES FROM ROLES
+          # ==========================================
+          for role in "${ROLES[@]}"; do
 
-          for policy in $ATTACHED_POLICIES; do
-            aws iam detach-role-policy \
-              --role-name management-ebs-csi-role \
-              --policy-arn $policy || true
+            ATTACHED=$(aws iam list-attached-role-policies \
+              --role-name $role \
+              --query 'AttachedPolicies[*].PolicyArn' \
+              --output text 2>/dev/null || true)
+
+            for policy in $ATTACHED; do
+              aws iam detach-role-policy \
+                --role-name $role \
+                --policy-arn $policy || true
+            done
+
+            INLINE=$(aws iam list-role-policies \
+              --role-name $role \
+              --query 'PolicyNames[*]' \
+              --output text 2>/dev/null || true)
+
+            for policy in $INLINE; do
+              aws iam delete-role-policy \
+                --role-name $role \
+                --policy-name $policy || true
+            done
+
+            aws iam delete-role \
+              --role-name $role || true
           done
 
-          aws iam delete-role \
-            --role-name management-ebs-csi-role || true
-
-          # =====================================================
-          # DEV EBS CSI ROLE
-          # =====================================================
-          ATTACHED_POLICIES=$(aws iam list-attached-role-policies \
-            --role-name dev-ebs-csi-role \
-            --query 'AttachedPolicies[*].PolicyArn' \
-            --output text 2>/dev/null || true)
-
-          for policy in $ATTACHED_POLICIES; do
-            aws iam detach-role-policy \
-              --role-name dev-ebs-csi-role \
-              --policy-arn $policy || true
+          # ==========================================
+          # DELETE CUSTOM POLICIES
+          # ==========================================
+          for policy in "${POLICIES[@]}"; do
+            aws iam delete-policy \
+              --policy-arn arn:aws:iam::$ACCOUNT_ID:policy/$policy || true
           done
-
-          aws iam delete-role \
-            --role-name dev-ebs-csi-role || true
 
       # =========================================================
       # DELETE CLOUDWATCH LOG GROUPS
@@ -360,17 +370,12 @@ jobs:
             --query "Addresses[*].[PublicIp]" \
             --output table
 
-          echo "==== VPC ===="
-          aws ec2 describe-vpcs \
-            --query "Vpcs[*].[VpcId,CidrBlock]" \
-            --output table
-
           echo "==== IAM ROLES ===="
           aws iam list-roles \
             --query "Roles[*].RoleName" \
             --output table
 
-          echo "==== KMS ALIASES ===="
+          echo "==== KMS ===="
           aws kms list-aliases \
             --query "Aliases[*].AliasName" \
             --output table
