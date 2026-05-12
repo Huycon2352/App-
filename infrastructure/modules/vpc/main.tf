@@ -41,12 +41,12 @@ resource "aws_subnet" "private" {
 
 # ---------------- EIP ----------------
 resource "aws_eip" "nat" {
-  count = 1
+  count = length(var.public_subnets)
 }
 
 # ---------------- NAT GATEWAY ----------------
 resource "aws_nat_gateway" "nat" {
-  count         = 1
+  count         = length(var.public_subnets)
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
 
@@ -82,7 +82,7 @@ resource "aws_route" "private_nat" {
 
   route_table_id         = aws_route_table.private[count.index].id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.nat[0].id
+  nat_gateway_id         = aws_nat_gateway.nat[count.index].id
 }
 
 resource "aws_route_table_association" "private" {
