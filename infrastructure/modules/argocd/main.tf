@@ -39,12 +39,18 @@ resource "time_sleep" "wait_argocd" {
 }
 
 # Bootstrap App Of Apps
-resource "kubernetes_manifest" "root_app" {
-  manifest = yamldecode(
-    file("${path.module}/app-of-apps.yaml")
-  )
-
+resource "null_resource" "root_app" {
   depends_on = [
     time_sleep.wait_argocd
   ]
+
+  provisioner "local-exec" {
+    command = <<EOT
+aws eks update-kubeconfig \
+  --name management-cluster \
+  --region ap-southeast-1
+
+kubectl apply -f ${path.module}/app-of-apps.yaml
+EOT
+  }
 }

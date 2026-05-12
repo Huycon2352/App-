@@ -183,6 +183,9 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
       # =====================================================
       # AWS AUTH
       # =====================================================
