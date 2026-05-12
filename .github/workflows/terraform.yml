@@ -5,74 +5,214 @@ on:
     branches: ["main"]
     paths:
       - "infrastructure/**"
+
   workflow_dispatch:
 
+env:
+  AWS_REGION: ap-southeast-1
+
 jobs:
-  management:
-    name: Deploy Management
+  # =========================================================
+  # MANAGEMENT INFRA
+  # =========================================================
+  management-infra:
+    name: Deploy Management Infra
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        working-directory: infrastructure/environments/management
+        working-directory: infrastructure/environments/management-infra
 
     steps:
+      # =====================================================
+      # CHECKOUT
+      # =====================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # =====================================================
+      # TERRAFORM
+      # =====================================================
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      # =====================================================
+      # AWS AUTH
+      # =====================================================
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
-          aws-region: ap-southeast-1
+          aws-region: ${{ env.AWS_REGION }}
 
+      # =====================================================
+      # INIT
+      # =====================================================
       - name: Terraform Init
         run: terraform init
 
+      # =====================================================
+      # VALIDATE
+      # =====================================================
       - name: Terraform Validate
         run: terraform validate
 
+      # =====================================================
+      # PLAN
+      # =====================================================
       - name: Terraform Plan
         run: terraform plan -out=tfplan
 
+      # =====================================================
+      # APPLY
+      # =====================================================
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
 
-  dev:
-    name: Deploy Dev
+  # =========================================================
+  # MANAGEMENT ARGOCD
+  # =========================================================
+  management-argocd:
+    name: Deploy ArgoCD
     runs-on: ubuntu-latest
-    needs: management
+
+    needs: management-infra
+
+    defaults:
+      run:
+        working-directory: infrastructure/environments/management-argocd
+
+    steps:
+      # =====================================================
+      # CHECKOUT
+      # =====================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # =====================================================
+      # TERRAFORM
+      # =====================================================
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # =====================================================
+      # AWS AUTH
+      # =====================================================
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # =====================================================
+      # WAIT EKS API READY
+      # =====================================================
+      - name: Wait for EKS API
+        run: |
+          echo "Waiting EKS API..."
+
+          for i in {1..30}; do
+            STATUS=$(aws eks describe-cluster \
+              --name management-cluster \
+              --region $AWS_REGION \
+              --query "cluster.status" \
+              --output text || true)
+
+            echo "Current status: $STATUS"
+
+            if [ "$STATUS" = "ACTIVE" ]; then
+              echo "EKS cluster ready"
+              exit 0
+            fi
+
+            sleep 30
+          done
+
+          echo "EKS cluster not ready"
+          exit 1
+
+      # =====================================================
+      # INIT
+      # =====================================================
+      - name: Terraform Init
+        run: terraform init
+
+      # =====================================================
+      # VALIDATE
+      # =====================================================
+      - name: Terraform Validate
+        run: terraform validate
+
+      # =====================================================
+      # PLAN
+      # =====================================================
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # =====================================================
+      # APPLY
+      # =====================================================
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+  # =========================================================
+  # DEV INFRA
+  # =========================================================
+  dev-infra:
+    name: Deploy Dev Infra
+    runs-on: ubuntu-latest
+
+    needs: management-argocd
 
     defaults:
       run:
         working-directory: infrastructure/environments/dev
 
     steps:
+      # =====================================================
+      # CHECKOUT
+      # =====================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # =====================================================
+      # TERRAFORM
+      # =====================================================
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      # =====================================================
+      # AWS AUTH
+      # =====================================================
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
-          aws-region: ap-southeast-1
+          aws-region: ${{ env.AWS_REGION }}
 
+      # =====================================================
+      # INIT
+      # =====================================================
       - name: Terraform Init
         run: terraform init
 
+      # =====================================================
+      # VALIDATE
+      # =====================================================
       - name: Terraform Validate
         run: terraform validate
 
+      # =====================================================
+      # PLAN
+      # =====================================================
       - name: Terraform Plan
         run: terraform plan -out=tfplan
 
+      # =====================================================
+      # APPLY
+      # =====================================================
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan

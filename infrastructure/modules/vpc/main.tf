@@ -41,7 +41,7 @@ resource "aws_subnet" "private" {
 
 # ---------------- EIP ----------------
 resource "aws_eip" "nat" {
-  count = length(var.public_subnets)
+  count = 1
 }
 
 # ---------------- NAT GATEWAY ----------------

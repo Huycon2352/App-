@@ -44,36 +44,6 @@ module "eks" {
   enviroment = "management"
 }
 
-data "aws_eks_cluster_auth" "this" {
-  name = module.eks.cluster_name
-
-  depends_on = [module.eks]
-}
-
-provider "kubernetes" {
-  host                   = module.eks.cluster_endpoint
-  token                  = data.aws_eks_cluster_auth.this.token
-  cluster_ca_certificate = base64decode(module.eks.cluster_ca)
-}
-
-provider "helm" {
-  kubernetes = {
-    host                   = module.eks.cluster_endpoint
-    token                  = data.aws_eks_cluster_auth.this.token
-    cluster_ca_certificate = base64decode(module.eks.cluster_ca)
-  }
-}
-
-module "argocd" {
-  source = "../../modules/argocd"
-
-  providers = {
-    kubernetes = kubernetes
-    helm       = helm
-  }
-
-  depends_on = [module.eks]
-}
 
 module "ecr" {
   source = "../../modules/ecr"
