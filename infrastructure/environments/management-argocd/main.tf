@@ -12,6 +12,10 @@ terraform {
     helm = {
       source = "hashicorp/helm"
     }
+
+    time = {    
+        source = "hashicorp/time"
+    }
   }
 }
 
@@ -41,9 +45,6 @@ provider "kubernetes" {
   cluster_ca_certificate = base64decode(
     data.terraform_remote_state.management.outputs.cluster_ca
   )
-  experiments {
-    manifest_resource = true
-  }
 }
 
 provider "helm" {

@@ -35,7 +35,7 @@ resource "time_sleep" "wait_argocd" {
     helm_release.argocd
   ]
 
-  create_duration = "120s"
+  create_duration = "180s"
 }
 
 # Bootstrap App Of Apps
