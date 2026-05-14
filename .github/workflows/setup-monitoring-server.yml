@@ -1,29 +1,31 @@
-name: Setup Monitoring Server (Management Cluster)
+name: Deploy Monitoring Stack (Management)
 
 on:
   workflow_dispatch:
 
 env:
   AWS_REGION: ap-southeast-1
-  HELM_REPO: https://prometheus-community.github.io/helm-charts
-  HELM_REPO_NAME: prometheus-community
-  NAMESPACE: monitoring
+  PROMETHEUS_NAMESPACE: monitoring
+  PROMETHEUS_RELEASE_NAME: kube-prometheus-stack
 
 jobs:
-  setup-server:
-    name: Setup Prometheus Server on Management Cluster
+  # =========================================================
+  # DEPLOY MONITORING STACK ON MANAGEMENT CLUSTER
+  # =========================================================
+  deploy-monitoring-stack:
+    name: Deploy Prometheus + Grafana on Management
     runs-on: ubuntu-latest
 
     steps:
-      # =========================================================
+      # =====================================================
       # CHECKOUT
-      # =========================================================
+      # =====================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # =========================================================
+      # =====================================================
       # AWS AUTH
-      # =========================================================
+      # =====================================================
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -31,22 +33,21 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # =========================================================
-      # INSTALL KUBECTL
-      # =========================================================
+      # =====================================================
+      # INSTALL TOOLS
+      # =====================================================
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
 
-      # =========================================================
-      # INSTALL HELM
-      # =========================================================
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
 
-      # =========================================================
-      # CONNECT MANAGEMENT CLUSTER
-      # =========================================================
-      - name: Connect to management cluster
+      # =====================================================
+      # CONNECT TO MANAGEMENT CLUSTER
+      # =====================================================
+      - name: Connect to Management Cluster
         run: |
           aws eks update-kubeconfig \
             --name management-cluster \
@@ -55,282 +56,105 @@ jobs:
           echo "Current context:"
           kubectl config current-context
 
-      # =========================================================
-      # CREATE NAMESPACE
-      # =========================================================
-      - name: Create monitoring namespace
+      # =====================================================
+      # CREATE MONITORING NAMESPACE
+      # =====================================================
+      - name: Create Monitoring Namespace
         run: |
-          kubectl create namespace ${{ env.NAMESPACE }} || true
-          kubectl label namespace ${{ env.NAMESPACE }} name=${{ env.NAMESPACE }} --overwrite
+          kubectl create namespace ${{ env.PROMETHEUS_NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "Namespace status:"
+          kubectl get ns ${{ env.PROMETHEUS_NAMESPACE }}
 
-      # =========================================================
-      # ADD HELM REPO
-      # =========================================================
-      - name: Add Prometheus Helm repository
+      # =====================================================
+      # ADD PROMETHEUS HELM REPO
+      # =====================================================
+      - name: Add Prometheus Community Helm Repository
         run: |
-          helm repo add ${{ env.HELM_REPO_NAME }} ${{ env.HELM_REPO }}
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
           helm repo update
+          
+          echo "Available prometheus-community charts:"
+          helm search repo prometheus-community/kube-prometheus-stack
 
-      # =========================================================
-      # INSTALL KUBE-PROMETHEUS-STACK (SERVER)
-      # =========================================================
-      - name: Install kube-prometheus-stack (Server Mode)
+      # =====================================================
+      # DEPLOY KUBE-PROMETHEUS-STACK
+      # =====================================================
+      - name: Deploy Kube Prometheus Stack
         run: |
-          helm install kube-prometheus-stack \
-            ${{ env.HELM_REPO_NAME }}/kube-prometheus-stack \
-            --namespace ${{ env.NAMESPACE }} \
-            --values infrastructure/helm/monitoring/values-central.yaml \
+          helm upgrade --install ${{ env.PROMETHEUS_RELEASE_NAME }} \
+            prometheus-community/kube-prometheus-stack \
+            --namespace ${{ env.PROMETHEUS_NAMESPACE }} \
+            --values monitoring/helm-values/prometheus-values.yml \
             --wait \
-            --timeout 5m
+            --timeout 10m
 
-      # =========================================================
-      # CREATE NODEPORT SERVICE FOR PROMETHEUS (Remote Write)
-      # =========================================================
-      - name: Create NodePort service for Prometheus
+      # =====================================================
+      # VERIFY DEPLOYMENT
+      # =====================================================
+      - name: Verify Prometheus Stack Deployment
         run: |
-          cat <<EOF | kubectl apply -f -
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: prometheus-remote-write
-            namespace: ${{ env.NAMESPACE }}
-            labels:
-              app: prometheus
-              component: remote-write-endpoint
-          spec:
-            type: NodePort
-            ports:
-            - name: web
-              port: 9090
-              targetPort: 9090
-              nodePort: 30090
-              protocol: TCP
-            selector:
-              app.kubernetes.io/name: prometheus
-              prometheus: kube-prometheus-stack-prometheus
-          EOF
+          echo "=== Monitoring Namespace Resources ==="
+          kubectl get all -n ${{ env.PROMETHEUS_NAMESPACE }}
           
-          echo "✅ NodePort service created (Port: 30090)"
+          echo ""
+          echo "=== Prometheus Pod Status ==="
+          kubectl get pods -n ${{ env.PROMETHEUS_NAMESPACE }} -l app.kubernetes.io/name=prometheus
+          
+          echo ""
+          echo "=== Grafana Pod Status ==="
+          kubectl get pods -n ${{ env.PROMETHEUS_NAMESPACE }} -l app.kubernetes.io/name=grafana
 
-      # =========================================================
-      # ENSURE GRAFANA IS CLUSTERIP ONLY (NO EXPOSURE)
-      # =========================================================
-      - name: Update Grafana service to ClusterIP
+      # =====================================================
+      # GET GRAFANA PASSWORD
+      # =====================================================
+      - name: Get Grafana Initial Password
         run: |
-          # Patch service to remove LoadBalancer if it exists
-          kubectl patch svc kube-prometheus-stack-grafana \
-            -n ${{ env.NAMESPACE }} \
-            -p '{"spec":{"type":"ClusterIP"}}' || true
+          GRAFANA_PASSWORD=$(kubectl get secret -n ${{ env.PROMETHEUS_NAMESPACE }} \
+            ${{ env.PROMETHEUS_RELEASE_NAME }}-grafana \
+            -o jsonpath="{.data.admin-password}" | base64 -d)
           
-          echo "✅ Grafana service set to ClusterIP (Private)"
+          echo "Grafana Admin Password: $GRAFANA_PASSWORD"
+          echo "GRAFANA_PASSWORD=$GRAFANA_PASSWORD" >> $GITHUB_ENV
 
-      # =========================================================
-      # ENSURE ALERTMANAGER IS CLUSTERIP ONLY
-      # =========================================================
-      - name: Update Alertmanager service to ClusterIP
+      # =====================================================
+      # EXPOSE SERVICES
+      # =====================================================
+      - name: Get Service Endpoints
         run: |
-          kubectl patch svc kube-prometheus-stack-alertmanager \
-            -n ${{ env.NAMESPACE }} \
-            -p '{"spec":{"type":"ClusterIP"}}' || true
+          echo "=== Prometheus Service ==="
+          kubectl get svc -n ${{ env.PROMETHEUS_NAMESPACE }} -l app.kubernetes.io/name=prometheus
           
-          echo "✅ Alertmanager service set to ClusterIP (Private)"
+          echo ""
+          echo "=== Grafana Service ==="
+          kubectl get svc -n ${{ env.PROMETHEUS_NAMESPACE }} -l app.kubernetes.io/name=grafana
+          
+          echo ""
+          echo "=== AlertManager Service ==="
+          kubectl get svc -n ${{ env.PROMETHEUS_NAMESPACE }} -l app.kubernetes.io/name=alertmanager
 
-      # =========================================================
-      # WAIT FOR DEPLOYMENTS
-      # =========================================================
-      - name: Wait for Prometheus deployment
+      # =====================================================
+      # SETUP PORT FORWARDING INFO
+      # =====================================================
+      - name: Display Access Instructions
         run: |
-          kubectl rollout status deployment/kube-prometheus-stack-prometheus \
-            -n ${{ env.NAMESPACE }} \
-            --timeout=600s
-
-      - name: Wait for Grafana deployment
-        run: |
-          kubectl rollout status deployment/kube-prometheus-stack-grafana \
-            -n ${{ env.NAMESPACE }} \
-            --timeout=600s
-
-      # =========================================================
-      # GET PROMETHEUS NODEPORT ENDPOINT (For agents)
-      # =========================================================
-      - name: Get Prometheus NodePort endpoint
-        run: |
-          echo "Getting Prometheus NodePort endpoint..."
-          
-          # For AWS: Use node IP
-          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
-          
-          if [ -z "$NODE_IP" ]; then
-            NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-          fi
-          
-          # For Kind: fallback to localhost
-          if [ -z "$NODE_IP" ]; then
-            NODE_IP="localhost"
-          fi
-          
-          NODE_PORT=$(kubectl get svc prometheus-remote-write -n ${{ env.NAMESPACE }} \
-            -o jsonpath='{.spec.ports[0].nodePort}')
-          
-          PROMETHEUS_ENDPOINT="http://$NODE_IP:$NODE_PORT"
-          
-          echo "✅ Prometheus endpoint: $PROMETHEUS_ENDPOINT"
-          echo "PROMETHEUS_ENDPOINT=$PROMETHEUS_ENDPOINT" >> $GITHUB_ENV
-          echo "NODE_IP=$NODE_IP" >> $GITHUB_ENV
-          echo "NODE_PORT=$NODE_PORT" >> $GITHUB_ENV
-
-      # =========================================================
-      # VERIFY PROMETHEUS ACCESSIBLE
-      # =========================================================
-      - name: Verify Prometheus remote write receiver
-        run: |
-          echo "Testing Prometheus remote write endpoint..."
-          
-          # Port-forward to test
-          kubectl port-forward -n ${{ env.NAMESPACE }} \
-            svc/prometheus-remote-write 9090:9090 &
-          PF_PID=$!
-          
-          sleep 3
-          
-          # Test metrics query
-          if curl -s http://localhost:9090/api/v1/query?query=up | jq -e '.status == "success"' > /dev/null; then
-            echo "✅ Prometheus is responding correctly"
-          else
-            echo "⚠️  Prometheus query endpoint test failed (may be normal)"
-          fi
-          
-          kill $PF_PID 2>/dev/null || true
-
-      # =========================================================
-      # GET GRAFANA CREDENTIALS
-      # =========================================================
-      - name: Get Grafana credentials
-        run: |
-          # Wait for secret
-          for i in {1..10}; do
-            if kubectl get secret -n ${{ env.NAMESPACE }} | grep grafana > /dev/null; then
-              break
-            fi
-            echo "Waiting for Grafana secret... ($i/10)"
-            sleep 5
-          done
-          
-          GRAFANA_PASS=$(kubectl get secret -n ${{ env.NAMESPACE }} \
-            -l app.kubernetes.io/name=grafana \
-            -o jsonpath='{.items[0].data.admin-password}' | base64 -d)
-          
-          echo "✅ Grafana credentials ready"
-          echo "GRAFANA_PASS=$GRAFANA_PASS" >> $GITHUB_ENV
-
-      # =========================================================
-      # OUTPUT SUMMARY
-      # =========================================================
-      - name: Print summary
-        run: |
-          cat <<'EOF'
-          ==========================================
-          ✅ Monitoring Server Setup Complete
-          ==========================================
-          
-          🔒 SERVICE ENDPOINTS (Private - ClusterIP)
-          ==========================================
-          
-          📊 Prometheus Server
-             Service: kube-prometheus-stack-prometheus
-             Port: 9090 (ClusterIP)
-             Internal: http://prometheus:9090
-          
-          📈 Grafana
-             Service: kube-prometheus-stack-grafana
-             Port: 3000 (ClusterIP)
-             Internal: http://grafana:3000
-             Username: admin
-             Password: ${{ env.GRAFANA_PASS }}
-          
-          🔔 Alertmanager
-             Service: kube-prometheus-stack-alertmanager
-             Port: 9093 (ClusterIP)
-             Internal: http://alertmanager:9093
-          
-          🌐 REMOTE WRITE ENDPOINT (NodePort - For Agents)
-          ==========================================
-          
-          Prometheus Remote Write:
-             URL: http://${{ env.NODE_IP }}:${{ env.NODE_PORT }}/api/v1/write
-             NodePort: 30090
-             Type: NodePort (Only for inter-cluster metrics)
-          
-          📝 ACCESS METHODS
-          ==========================================
-          
-          🔐 Option 1: AWS Systems Manager Session Manager
-             > aws ssm start-session --target i-xxxxx
-             > kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:3000
-             > Open: http://localhost:3000
-          
-          🔐 Option 2: AWS SSM Port Forwarding (from local)
-             > aws ssm start-session --target i-xxxxx \
-               --document-name AWS-StartPortForwardingSession \
-               --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}'
-             > Open: http://localhost:3000
-          
-          🔐 Option 3: VPN + Direct Access (if VPN configured)
-             > kubectl exec -it pod/bastion -n monitoring -- \
-               kubectl port-forward svc/kube-prometheus-stack-grafana 3000:3000
-             > Then access via VPN IP
-          
-          ⚠️  SECURITY NOTES
-          ==========================================
-          
-          ✅ Prometheus: NodePort 30090 (only for agent remote-write)
-          ✅ Grafana: ClusterIP only (NO external exposure)
-          ✅ Alertmanager: ClusterIP only (internal only)
-          
-          🚀 NEXT STEPS
-          ==========================================
-          
-          1. Run 'setup-monitoring-agent' for dev cluster
-             > cluster_name: dev
-             > Agents will remote-write to: http://${{ env.NODE_IP }}:${{ env.NODE_PORT }}
-          
-          2. Access Grafana securely
-             > Use AWS Systems Manager Session Manager
-             > Port-forward to localhost:3000
-          
-          3. Setup AWS Systems Manager (if not done)
-             > EC2 instances need IAM role: AmazonSSMManagedInstanceCore
-             > Install SSM agent on EC2
-          
-          ==========================================
-          EOF
-
-      # =========================================================
-      # SAVE ENDPOINT CONFIG (for agent workflow)
-      # =========================================================
-      - name: Save endpoint configuration
-        run: |
-          mkdir -p /tmp/monitoring-config
-          
-          cat > /tmp/monitoring-config/server-endpoints.sh <<'EOF'
-          #!/bin/bash
-          # Prometheus Remote Write Endpoint (for agents)
-          export PROMETHEUS_ENDPOINT="${{ env.PROMETHEUS_ENDPOINT }}"
-          export PROMETHEUS_NODE_IP="${{ env.NODE_IP }}"
-          export PROMETHEUS_NODE_PORT="${{ env.NODE_PORT }}"
-          
-          # Grafana Access Info (for admins)
-          export GRAFANA_SERVICE="kube-prometheus-stack-grafana"
-          export GRAFANA_NAMESPACE="monitoring"
-          export GRAFANA_PORT="3000"
-          export GRAFANA_PASSWORD="${{ env.GRAFANA_PASS }}"
-          
-          echo "Monitoring Endpoints:"
-          echo "  Remote Write: $PROMETHEUS_ENDPOINT/api/v1/write"
-          echo "  Grafana (internal): http://$GRAFANA_SERVICE:3GRAFANA_PORT"
-          EOF
-          
-          chmod +x /tmp/monitoring-config/server-endpoints.sh
-          
-          echo "Configuration saved"
-          cat /tmp/monitoring-config/server-endpoints.sh
+          echo "=========================================="
+          echo "✅ Monitoring Stack Deployed Successfully"
+          echo "=========================================="
+          echo ""
+          echo "📊 PROMETHEUS:"
+          echo "  kubectl port-forward -n ${{ env.PROMETHEUS_NAMESPACE }} svc/kube-prometheus-stack-prometheus 9090:9090"
+          echo "  URL: http://localhost:9090"
+          echo ""
+          echo "📈 GRAFANA:"
+          echo "  kubectl port-forward -n ${{ env.PROMETHEUS_NAMESPACE }} svc/kube-prometheus-stack-grafana 3000:80"
+          echo "  URL: http://localhost:3000"
+          echo "  Username: admin"
+          echo "  Password: ${{ env.GRAFANA_PASSWORD }}"
+          echo ""
+          echo "🔔 ALERTMANAGER:"
+          echo "  kubectl port-forward -n ${{ env.PROMETHEUS_NAMESPACE }} svc/kube-prometheus-stack-alertmanager 9093:9093"
+          echo "  URL: http://localhost:9093"
+          echo ""
