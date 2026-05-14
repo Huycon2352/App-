@@ -10,7 +10,8 @@ data:
       evaluation_interval: 15s
 
     remote_write:
-      # PROMETHEUS_REMOTE_WRITE_URL must be substituted (for example via envsubst) before apply.
+      # Do not apply this manifest directly: substitute PROMETHEUS_REMOTE_WRITE_URL first (for example via envsubst).
+      # Expected format: http://<prometheus-host>:9090/api/v1/write
       - url: ${PROMETHEUS_REMOTE_WRITE_URL}
         write_relabel_configs:
           - source_labels: [__name__]
