@@ -1,0 +1,93 @@
+module "vpc" {
+  source = "../../modules/vpc"
+
+  aws_region          = var.aws_region
+  environment         = var.environment
+  vpc_cidr            = var.vpc_cidr
+  public_subnet_cidr  = var.public_subnet_cidr
+  private_subnet_cidr = var.private_subnet_cidr
+  availability_zone   = var.availability_zone
+}
+
+module "security_groups" {
+  source = "../../modules/security-group"
+
+  environment = var.environment
+  vpc_id      = module.vpc.vpc_id
+  vpc_cidr    = module.vpc.vpc_cidr
+}
+
+module "iam" {
+  source = "../../modules/iam"
+
+  environment        = var.environment
+  aws_account_id     = var.aws_account_id
+  oidc_provider_arn  = aws_iam_openid_connect_provider.cluster.arn
+
+  depends_on = [
+    aws_iam_openid_connect_provider.cluster
+  ]
+}
+
+module "eks" {
+  source = "../../modules/eks"
+
+  environment               = var.environment
+  cluster_role_arn          = module.iam.eks_cluster_role_arn
+  kubernetes_version        = var.kubernetes_version
+  subnet_ids                = [module.vpc.private_subnet_id]
+  cluster_security_group_id = module.security_groups.eks_cluster_security_group_id
+}
+
+resource "aws_iam_openid_connect_provider" "cluster" {
+  count = 0
+}
+
+module "node_group" {
+  source = "../../modules/node-group"
+
+  environment        = var.environment
+  cluster_name       = module.eks.cluster_id
+  node_role_arn      = module.iam.eks_node_role_arn
+  subnet_ids         = [module.vpc.private_subnet_id]
+  kubernetes_version = var.kubernetes_version
+  desired_size       = var.node_desired_size
+  min_size           = var.node_min_size
+  max_size           = var.node_max_size
+  instance_types     = var.node_instance_types
+  capacity_type      = "ON_DEMAND"
+  disk_size          = 30
+  ec2_ssh_key        = null
+}
+
+module "ecr" {
+  source = "../../modules/ecr"
+
+  environment = var.environment
+}
+
+module "alb_controller" {
+  count = var.deploy_alb_controller ? 1 : 0
+  source = "../../modules/alb-controller"
+
+  cluster_name              = module.eks.cluster_id
+  cluster_id                = module.eks.cluster_id
+  alb_controller_role_arn   = module.iam.alb_controller_role_arn
+  alb_controller_version    = "2.6.2"
+
+  depends_on = [
+    module.node_group
+  ]
+}
+
+module "argocd" {
+  count = var.deploy_argocd ? 1 : 0
+  source = "../../modules/argocd"
+
+  argocd_version = "5.46.0"
+  argocd_domain  = "argocd.${var.environment}.example.com"
+
+  depends_on = [
+    module.alb_controller
+  ]
+}
