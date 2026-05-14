@@ -61,7 +61,7 @@ spec:
       serviceAccountName: prometheus-agent
       containers:
         - name: prometheus-agent
-          image: prom/prometheus:latest
+          image: prom/prometheus:v2.55.1
           args:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus

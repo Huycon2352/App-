@@ -62,7 +62,7 @@ spec:
 
     - name: persistentvolume.rules
       rules:
-        - alert: PersistentvolumeclaimPending
+        - alert: PersistentVolumeClaimPending
           expr: kube_persistentvolumeclaim_status_phase{phase="Pending"} == 1
           for: 10m
           labels:
