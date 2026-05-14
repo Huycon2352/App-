@@ -1,0 +1,119 @@
+name: Deploy Monitoring Agents (Dev)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  MONITORING_NAMESPACE: monitoring
+
+jobs:
+  deploy-monitoring-agents:
+    name: Deploy Prometheus Agents on Dev Cluster
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.15.4
+
+      - name: Install envsubst
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext-base
+
+      - name: Get Prometheus Endpoint from Management Cluster
+        run: |
+          set -euo pipefail
+
+          aws eks update-kubeconfig \
+            --name management-cluster \
+            --region ${{ env.AWS_REGION }} \
+            --alias management-cluster
+
+          PROMETHEUS_HOST=$(kubectl get svc -n ${{ env.MONITORING_NAMESPACE }} kube-prometheus-stack-prometheus -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          if [ -z "$PROMETHEUS_HOST" ]; then
+            PROMETHEUS_HOST=$(kubectl get svc -n ${{ env.MONITORING_NAMESPACE }} kube-prometheus-stack-prometheus -o jsonpath='{.spec.clusterIP}')
+          fi
+          if [ -z "$PROMETHEUS_HOST" ]; then
+            echo "Failed to discover Prometheus endpoint in management cluster"
+            exit 1
+          fi
+
+          echo "PROMETHEUS_REMOTE_WRITE_URL=http://${PROMETHEUS_HOST}:9090/api/v1/write" >> "$GITHUB_ENV"
+
+      - name: Connect to Dev Cluster
+        run: |
+          aws eks update-kubeconfig \
+            --name dev-cluster \
+            --region ${{ env.AWS_REGION }} \
+            --alias dev-cluster
+          kubectl config current-context
+
+      - name: Create Monitoring Namespace on Dev
+        run: |
+          kubectl create namespace ${{ env.MONITORING_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Add Prometheus Community Helm Repository
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+
+      - name: Deploy Node Exporter
+        run: |
+          helm upgrade --install prometheus-node-exporter \
+            prometheus-community/prometheus-node-exporter \
+            --namespace ${{ env.MONITORING_NAMESPACE }} \
+            --values monitoring/helm-values/node-exporter-values.yml \
+            --wait \
+            --timeout 10m
+
+      - name: Deploy Kube State Metrics
+        run: |
+          helm upgrade --install kube-state-metrics \
+            prometheus-community/kube-state-metrics \
+            --namespace ${{ env.MONITORING_NAMESPACE }} \
+            --values monitoring/helm-values/kube-state-metrics-values.yml \
+            --wait \
+            --timeout 10m
+
+      - name: Deploy Prometheus Agent Config
+        run: |
+          set -euo pipefail
+          if [ -z "${PROMETHEUS_REMOTE_WRITE_URL:-}" ]; then
+            echo "PROMETHEUS_REMOTE_WRITE_URL is not set; aborting ConfigMap apply"
+            exit 1
+          fi
+          envsubst < monitoring/k8s-manifests/prometheus-agent-configmap.yml | kubectl apply -f -
+
+      - name: Deploy Prometheus Agent
+        run: |
+          kubectl apply -f monitoring/k8s-manifests/prometheus-agent-deployment.yml
+
+      - name: Deploy Alert Rules
+        run: |
+          kubectl apply -f monitoring/k8s-manifests/prometheus-rules-dev.yml
+
+      - name: Verify Agent Deployment
+        run: |
+          kubectl get all -n ${{ env.MONITORING_NAMESPACE }}
+          kubectl get daemonset -n ${{ env.MONITORING_NAMESPACE }} prometheus-node-exporter
+          kubectl get deployment -n ${{ env.MONITORING_NAMESPACE }} kube-state-metrics
+          kubectl get deployment -n ${{ env.MONITORING_NAMESPACE }} prometheus-agent

@@ -1,0 +1,15 @@
+prometheus:
+  monitor:
+    enabled: true
+    namespace: monitoring
+
+daemonset:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 24Mi
+  limits:
+    cpu: 200m
+    memory: 48Mi
