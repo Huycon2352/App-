@@ -12,6 +12,7 @@ data:
     remote_write:
       # Do not apply this manifest directly: substitute PROMETHEUS_REMOTE_WRITE_URL first (for example via envsubst).
       # Expected format: http://<prometheus-host>:9090/api/v1/write
+      # If not substituted, the Prometheus agent will fail to remote_write metrics.
       - url: ${PROMETHEUS_REMOTE_WRITE_URL}
         write_relabel_configs:
           - source_labels: [__name__]
