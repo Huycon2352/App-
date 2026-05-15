@@ -1,42 +1,36 @@
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "ap-southeast-1"
-}
-
-variable "aws_account_id" {
-  description = "AWS account ID"
-  type        = string
 }
 
 variable "environment" {
-  description = "Environment name (dev, staging, prod)"
+  description = "Environment name"
   type        = string
-  default     = "dev"
+}
+
+variable "aws_account_id" {
+  description = "AWS Account ID"
+  type        = string
 }
 
 variable "vpc_cidr" {
   description = "VPC CIDR block"
   type        = string
-  default     = "10.0.0.0/16"
 }
 
-variable "public_subnet_cidr" {
-  description = "Public subnet CIDR"
-  type        = string
-  default     = "10.0.1.0/24"
+variable "public_subnet_cidrs" {
+  description = "Public subnet CIDR blocks"
+  type        = list(string)
 }
 
-variable "private_subnet_cidr" {
-  description = "Private subnet CIDR"
-  type        = string
-  default     = "10.0.10.0/24"
+variable "private_subnet_cidrs" {
+  description = "Private subnet CIDR blocks"
+  type        = list(string)
 }
 
-variable "availability_zone" {
-  description = "Availability zone"
-  type        = string
-  default     = "ap-southeast-1a"
+variable "availability_zones" {
+  description = "Availability zones"
+  type        = list(string)
 }
 
 variable "kubernetes_version" {
@@ -46,37 +40,25 @@ variable "kubernetes_version" {
 }
 
 variable "node_desired_size" {
-  description = "Desired number of worker nodes"
+  description = "Desired number of nodes"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "node_min_size" {
-  description = "Minimum number of worker nodes"
+  description = "Minimum number of nodes"
   type        = number
   default     = 1
 }
 
 variable "node_max_size" {
-  description = "Maximum number of worker nodes"
+  description = "Maximum number of nodes"
   type        = number
-  default     = 3
+  default     = 4
 }
 
 variable "node_instance_types" {
-  description = "Instance types for worker nodes"
+  description = "EC2 instance types for nodes"
   type        = list(string)
-  default     = ["t3.small"]
-}
-
-variable "deploy_argocd" {
-  description = "Deploy ArgoCD"
-  type        = bool
-  default     = true
-}
-
-variable "deploy_alb_controller" {
-  description = "Deploy ALB controller"
-  type        = bool
-  default     = true
+  default     = ["t3.medium"]
 }
