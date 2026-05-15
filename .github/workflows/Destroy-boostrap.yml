@@ -34,11 +34,22 @@ jobs:
         run: |
           terraform import aws_dynamodb_table.tf_lock terraform-lock || true
 
-      # Empty bucket trước khi destroy
-      - name: Empty S3 Bucket
-        run: |
-          aws s3 rm s3://terraform-state-voting-app-123456 --recursive || true
-
-      - name: Terraform Destroy
-        working-directory: infrastructure/bootstrap
-        run: terraform destroy -auto-approve
+      - name: Empty Versioned S3 Bucket
+      run: |
+        aws s3api delete-objects \
+          --bucket terraform-state-voting-app-123456 \
+          --delete "$(aws s3api list-object-versions \
+          --bucket terraform-state-voting-app-123456 \
+          --output json \
+          --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}')"
+    
+        aws s3api delete-objects \
+          --bucket terraform-state-voting-app-123456 \
+          --delete "$(aws s3api list-object-versions \
+          --bucket terraform-state-voting-app-123456 \
+          --output json \
+          --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}')"
+    
+          - name: Terraform Destroy
+            working-directory: infrastructure/bootstrap
+            run: terraform destroy -auto-approve
