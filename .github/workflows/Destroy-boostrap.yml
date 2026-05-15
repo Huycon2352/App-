@@ -23,33 +23,40 @@ jobs:
         working-directory: infrastructure/bootstrap
         run: terraform init
 
-      # Import lại resource vào state tạm
+      # Import S3 nếu tồn tại
       - name: Import S3
         working-directory: infrastructure/bootstrap
         run: |
           terraform import aws_s3_bucket.tf_state terraform-state-voting-app-123456 || true
 
+      # Import DynamoDB nếu tồn tại
       - name: Import DynamoDB
         working-directory: infrastructure/bootstrap
         run: |
           terraform import aws_dynamodb_table.tf_lock terraform-lock || true
 
+      # Xóa toàn bộ object versions + delete markers
       - name: Empty Versioned S3 Bucket
         run: |
           aws s3api delete-objects \
             --bucket terraform-state-voting-app-123456 \
-            --delete "$(aws s3api list-object-versions \
-            --bucket terraform-state-voting-app-123456 \
-            --output json \
-            --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}')"
-      
+            --delete "$(
+              aws s3api list-object-versions \
+                --bucket terraform-state-voting-app-123456 \
+                --output json \
+                --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}'
+            )" || true
+
           aws s3api delete-objects \
             --bucket terraform-state-voting-app-123456 \
-            --delete "$(aws s3api list-object-versions \
-            --bucket terraform-state-voting-app-123456 \
-            --output json \
-            --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}')"
-    
-          - name: Terraform Destroy
-            working-directory: infrastructure/bootstrap
-            run: terraform destroy -auto-approve
+            --delete "$(
+              aws s3api list-object-versions \
+                --bucket terraform-state-voting-app-123456 \
+                --output json \
+                --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}'
+            )" || true
+
+      # Destroy bootstrap resources
+      - name: Terraform Destroy
+        working-directory: infrastructure/bootstrap
+        run: terraform destroy -auto-approve
