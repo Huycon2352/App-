@@ -87,7 +87,7 @@ resource "aws_iam_role" "eks_admin_role" {
     Statement = [{
       Effect = "Allow"
       Principal = {
-        AWS = "arn:aws:iam::248195880649:user/hgiang2352"
+        AWS = "arn:aws:iam::248195880649:user/UserTesting"
       }
       Action = "sts:AssumeRole"
     }]
