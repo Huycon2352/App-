@@ -17,10 +17,10 @@ module "vpc" {
 }
 
 # ============================================================
-# Security Groups Module
+# Security Module
 # ============================================================
 module "security_groups" {
-  source = "../../modules/security-group"
+  source = "../../modules/security"
 
   environment = var.environment
   vpc_id      = module.vpc.vpc_id
@@ -69,47 +69,3 @@ module "node_group" {
   disk_size          = 30
   ec2_ssh_key        = null
 }
-
-/*
-# ============================================================
-# ECR Module
-# ============================================================
-module "ecr" {
-  source = "../../modules/ecr"
-
-  environment = var.environment
-}
-
-
-# ============================================================
-# ALB Controller (optional)
-# ============================================================
-module "alb_controller" {
-  count = var.deploy_alb_controller ? 1 : 0
-  source = "../../modules/alb-controller"
-
-  cluster_name              = module.eks.cluster_id
-  cluster_id                = module.eks.cluster_id
-  alb_controller_role_arn   = module.iam.alb_controller_role_arn
-  alb_controller_version    = "2.6.2"
-
-  depends_on = [
-    module.node_group
-  ]
-}
-
-# ============================================================
-# ArgoCD (optional)
-# ============================================================
-module "argocd" {
-  count = var.deploy_argocd ? 1 : 0
-  source = "../../modules/argocd"
-
-  argocd_version = "5.46.0"
-  argocd_domain  = "argocd.${var.environment}.example.com"
-
-  depends_on = [
-    module.alb_controller
-  ]
-}
-*/

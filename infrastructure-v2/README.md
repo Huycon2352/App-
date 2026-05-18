@@ -1,81 +1,80 @@
-# Infrastructure-V2: Minimal EKS Setup
+# Infrastructure-V2
 
-## 📋 Kiến trúc
+## CIDR allocation
 
-- **1 VPC** duy nhất: `10.0.0.0/16`
-- **1 Private Subnet**: `10.0.10.0/24` (Nodes + Pods)
-- **EKS Cluster**: Minimal configuration
-- **Node Group**: 1-2 nodes (t3.small) - Auto-scaling
-- **ALB Controller**: Để expose services ra ngoài
-- **Terraform State**: S3 + DynamoDB (lock)
+| Environment | VPC CIDR | Public subnets | Private subnets |
+|---|---|---|---|
+| dev | `10.0.0.0/16` | `10.0.1.0/24`, `10.0.2.0/24` | `10.0.10.0/24`, `10.0.11.0/24` |
+| staging | `10.1.0.0/16` | `10.1.1.0/24` | `10.1.10.0/24` |
+| prod | `10.2.0.0/16` | `10.2.1.0/24` | `10.2.10.0/24` |
+| management | `10.3.0.0/16` | `10.3.1.0/24`, `10.3.2.0/24` | `10.3.10.0/24`, `10.3.11.0/24` |
 
-## 🚀 Cách deploy
+The management VPC moved to `10.3.0.0/16` so it can be peered with the dev VPC without overlapping CIDRs.
 
-### Step 1: Bootstrap (tạo S3 + DynamoDB)
+## Repository layout
+
+```text
+infrastructure-v2/
+├── modules/
+│   ├── vpc/
+│   ├── vpc-peering/
+│   ├── eks/
+│   ├── monitoring/
+│   └── security/
+├── environments/
+│   ├── dev/
+│   ├── staging/
+│   ├── prod/
+│   └── management/
+├── tfvars/
+└── outputs/
+```
+
+## Dev ↔ management peering architecture
+
+```mermaid
+flowchart LR
+  subgraph Dev[Dev VPC 10.0.0.0/16]
+    DevPrivate[Private/Public route tables]
+    DevCluster[dev-cluster]
+  end
+
+  subgraph Mgmt[Management VPC 10.3.0.0/16]
+    MgmtPrivate[Private/Public route tables]
+    MgmtCluster[management-cluster]
+    Prometheus[Prometheus remote_write endpoint]
+  end
+
+  DevPrivate <-- bidirectional routes --> Peering[VPC peering]
+  MgmtPrivate <-- bidirectional routes --> Peering
+  DevCluster -->|remote_write| Prometheus
+```
+
+## VPC peering
+
+The `modules/vpc-peering` module creates a same-account VPC peering connection and installs bidirectional routes into every route table you pass in. The management stack reads the dev stack outputs from remote state and creates the `dev-management-peering` connection.
+
+## Monitoring remote_write integration
+
+The `modules/monitoring` module standardizes the values required by the Prometheus agent:
+
+- `PROMETHEUS_REMOTE_WRITE_URL`
+- `PROMETHEUS_REMOTE_WRITE_HOST`
+- `PROMETHEUS_REMOTE_WRITE_PORT`
+- `PROMETHEUS_REMOTE_WRITE_PATH`
+- `PROMETHEUS_REMOTE_WRITE_SCHEME`
+- `PROMETHEUS_REMOTE_WRITE_NAMESPACE`
+- `PROMETHEUS_REMOTE_WRITE_SERVICE`
+
+Fetch them from the management stack outputs:
+
 ```bash
-cd infrastructure-v2/bootstrap/backend
-terraform init
-terraform apply
+cd infrastructure-v2/environments/management
+terraform output -raw prometheus_agent_environment_file > /tmp/prometheus-agent.env
+set -a
+source /tmp/prometheus-agent.env
+set +a
+envsubst < ../../../monitoring/k8s-manifests/prometheus-agent-configmap.yml | kubectl apply -f -
 ```
 
-### Step 2: Deploy Dev Environment
-```bash
-cd infrastructure-v2/environments/dev
-terraform init
-terraform plan
-terraform apply
-```
-
-### Step 3: Deploy Staging (optional)
-```bash
-cd infrastructure-v2/environments/staging
-terraform init
-terraform apply
-```
-
-### Step 4: Deploy Prod (optional)
-```bash
-cd infrastructure-v2/environments/prod
-terraform init
-terraform apply
-```
-
-## 💰 Chi phí dự kiến
-
-| Dịch vụ | Chi phí/tháng |
-|---------|---------------|
-| EKS Cluster | $73 |
-| EC2 (t3.small x1-2) | $15-30 |
-| NAT Gateway | $35 |
-| VPC Endpoints | ~$7 |
-| ALB (optional) | $16 |
-| **TỔNG** | **~$146-161/tháng** |
-
-## 📝 Notes
-
-- Terraform state lưu trên S3 + DynamoDB lock
-- Mỗi environment (dev/staging/prod) có state riêng
-- Auto-scaling: Min 1 node, Max 3 nodes
-- Instance type: `t3.small` (rẻ, đủ cho dev/staging)
-- Staging/Prod có thể thay đổi instance type trong `terraform.tfvars`
-
-## 🔗 Mối quan hệ modules
-
-```
-main.tf
-├── vpc (tạo VPC + Subnet)
-├── security-group (tạo SG cho EKS)
-├── iam (tạo IAM roles)
-├── eks (tạo EKS cluster)
-├── node-group (tạo Node Group)
-├── alb-controller (Helm chart)
-├── ecr (tạo ECR repos)
-└── argocd (Helm chart - optional)
-```
-
-## ⚠️ Requirements
-
-- Terraform >= 1.0
-- AWS CLI configured
-- `kubectl` installed
-- `helm` installed (for ArgoCD + ALB Controller)
+If you expose Prometheus through an internal AWS load balancer, set `prometheus_remote_write_host` in `management/terraform.tfvars` to the internal DNS name so the generated URL points agents at the load balancer instead of the cluster-local service DNS name.

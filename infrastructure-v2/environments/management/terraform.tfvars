@@ -1,26 +1,36 @@
 # ============================================================
-# DEV Environment: Terraform Variables
+# MANAGEMENT Environment: Terraform Variables
 # ============================================================
 
 aws_region     = "ap-southeast-1"
-aws_account_id = "248195880649"  # Replace with your AWS account ID
-environment    = "dev"
+aws_account_id = "248195880649"
+environment    = "management"
 
 # VPC Configuration
-vpc_cidr            = "10.0.0.0/16"
-public_subnet_cidr  = "10.0.1.0/24"
-private_subnet_cidr = "10.0.10.0/24"
-availability_zone   = "ap-southeast-1a"
+vpc_cidr            = "10.3.0.0/16"
+availability_zones  = ["ap-southeast-1a", "ap-southeast-1b"]
+public_subnet_cidrs = ["10.3.1.0/24", "10.3.2.0/24"]
+private_subnet_cidrs = ["10.3.10.0/24", "10.3.11.0/24"]
 
 # Kubernetes Configuration
 kubernetes_version = "1.28"
 
-# Node Group Configuration (Minimal for Dev)
-node_desired_size = 1
-node_min_size     = 1
-node_max_size     = 3
-node_instance_types = ["t3.small"]  # Cheap instance type for dev
+# Node Group Configuration
+node_desired_size   = 1
+node_min_size       = 1
+node_max_size       = 3
+node_instance_types = ["t3.small"]
 
-# Features
-deploy_argocd          = true
-deploy_alb_controller  = true
+# Cross-stack integration
+terraform_state_bucket        = "voting-app-terraform-state-248195880649"
+terraform_state_region        = "ap-southeast-1"
+dev_state_key                 = "environments/dev/terraform.tfstate"
+enable_dev_management_peering = true
+
+# Monitoring / remote_write
+monitoring_namespace            = "monitoring"
+prometheus_service_name         = "kube-prometheus-stack-prometheus"
+prometheus_remote_write_scheme  = "http"
+prometheus_remote_write_port    = 9090
+prometheus_remote_write_path    = "/api/v1/write"
+prometheus_remote_write_host    = ""

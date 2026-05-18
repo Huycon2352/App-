@@ -1,4 +1,9 @@
 prometheus:
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
   prometheusSpec:
     retention: 30d
     retentionSize: 10GB

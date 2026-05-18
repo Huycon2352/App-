@@ -1,75 +1,60 @@
 # ============================================================
-# DEV Environment: Main Terraform Configuration
+# MANAGEMENT Environment: Main Terraform Configuration
 # ============================================================
 
-# ============================================================
-# VPC Module
-# ============================================================
+data "terraform_remote_state" "dev" {
+  backend = "s3"
+
+  config = {
+    bucket = var.terraform_state_bucket
+    key    = var.dev_state_key
+    region = var.terraform_state_region
+  }
+}
+
 module "vpc" {
   source = "../../modules/vpc"
 
-  aws_region          = var.aws_region
-  environment         = var.environment
-  vpc_cidr            = var.vpc_cidr
-  public_subnet_cidr  = var.public_subnet_cidr
-  private_subnet_cidr = var.private_subnet_cidr
-  availability_zone   = var.availability_zone
+  aws_region           = var.aws_region
+  environment          = var.environment
+  vpc_cidr             = var.vpc_cidr
+  public_subnet_cidrs  = var.public_subnet_cidrs
+  private_subnet_cidrs = var.private_subnet_cidrs
+  availability_zones   = var.availability_zones
 }
 
-# ============================================================
-# Security Groups Module
-# ============================================================
 module "security_groups" {
-  source = "../../modules/security-group"
+  source = "../../modules/security"
 
   environment = var.environment
   vpc_id      = module.vpc.vpc_id
   vpc_cidr    = module.vpc.vpc_cidr
 }
 
-# ============================================================
-# IAM Module
-# ============================================================
 module "iam" {
   source = "../../modules/iam"
 
-  environment        = var.environment
-  aws_account_id     = var.aws_account_id
-  # oidc_provider_arn  = aws_iam_openid_connect_provider.cluster.arn
-
-  # depends_on = [
-  #   aws_iam_openid_connect_provider.cluster
-  # ]
+  environment    = var.environment
+  aws_account_id = var.aws_account_id
 }
 
-# ============================================================
-# EKS Cluster Module
-# ============================================================
 module "eks" {
   source = "../../modules/eks"
 
   environment               = var.environment
   cluster_role_arn          = module.iam.eks_cluster_role_arn
   kubernetes_version        = var.kubernetes_version
-  subnet_ids                = [module.vpc.private_subnet_id]
+  subnet_ids                = module.vpc.private_subnet_ids
   cluster_security_group_id = module.security_groups.eks_cluster_security_group_id
 }
 
-# ============================================================
-# OIDC Provider (already in eks module, but expose here)
-# ============================================================
-# Removed - OIDC is managed by the EKS module
-
-# ============================================================
-# Node Group Module
-# ============================================================
 module "node_group" {
   source = "../../modules/node-group"
 
   environment        = var.environment
   cluster_name       = module.eks.cluster_id
   node_role_arn      = module.iam.eks_node_role_arn
-  subnet_ids         = [module.vpc.private_subnet_id]
+  subnet_ids         = module.vpc.private_subnet_ids
   kubernetes_version = var.kubernetes_version
   desired_size       = var.node_desired_size
   min_size           = var.node_min_size
@@ -80,46 +65,32 @@ module "node_group" {
   ec2_ssh_key        = null
 }
 
-/*
-# ============================================================
-# ECR Module
-# ============================================================
-module "ecr" {
-  source = "../../modules/ecr"
+module "monitoring" {
+  source = "../../modules/monitoring"
 
-  environment = var.environment
+  environment               = var.environment
+  remote_write_host         = var.prometheus_remote_write_host
+  remote_write_scheme       = var.prometheus_remote_write_scheme
+  remote_write_port         = var.prometheus_remote_write_port
+  remote_write_path         = var.prometheus_remote_write_path
+  remote_write_namespace    = var.monitoring_namespace
+  remote_write_service_name = var.prometheus_service_name
 }
 
+module "dev_management_peering" {
+  count  = var.enable_dev_management_peering ? 1 : 0
+  source = "../../modules/vpc-peering"
 
-# ============================================================
-# ALB Controller (optional)
-# ============================================================
-module "alb_controller" {
-  count = var.deploy_alb_controller ? 1 : 0
-  source = "../../modules/alb-controller"
-
-  cluster_name              = module.eks.cluster_id
-  cluster_id                = module.eks.cluster_id
-  alb_controller_role_arn   = module.iam.alb_controller_role_arn
-  alb_controller_version    = "2.6.2"
-
-  depends_on = [
-    module.node_group
-  ]
+  name                    = "dev-management-peering"
+  requester_vpc_id        = data.terraform_remote_state.dev.outputs.vpc_id
+  requester_vpc_cidr      = data.terraform_remote_state.dev.outputs.vpc_cidr
+  requester_route_table_ids = data.terraform_remote_state.dev.outputs.route_table_ids
+  accepter_vpc_id         = module.vpc.vpc_id
+  accepter_vpc_cidr       = module.vpc.vpc_cidr
+  accepter_route_table_ids = module.vpc.route_table_ids
+  tags = {
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Purpose     = "dev-management-peering"
+  }
 }
-
-# ============================================================
-# ArgoCD (optional)
-# ============================================================
-module "argocd" {
-  count = var.deploy_argocd ? 1 : 0
-  source = "../../modules/argocd"
-
-  argocd_version = "5.46.0"
-  argocd_domain  = "argocd.${var.environment}.example.com"
-
-  depends_on = [
-    module.alb_controller
-  ]
-}
-*/
