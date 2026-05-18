@@ -10,7 +10,7 @@ variable "aws_account_id" {
 }
 
 variable "environment" {
-  description = "Environment name (dev, staging, prod)"
+  description = "Environment name for the prod stack"
   type        = string
   default     = "prod"
 }
@@ -21,22 +21,22 @@ variable "vpc_cidr" {
   default     = "10.2.0.0/16"
 }
 
-variable "public_subnet_cidr" {
-  description = "Public subnet CIDR"
-  type        = string
-  default     = "10.2.1.0/24"
+variable "public_subnet_cidrs" {
+  description = "Public subnet CIDR blocks"
+  type        = list(string)
+  default     = ["10.2.1.0/24"]
 }
 
-variable "private_subnet_cidr" {
-  description = "Private subnet CIDR"
-  type        = string
-  default     = "10.2.10.0/24"
+variable "private_subnet_cidrs" {
+  description = "Private subnet CIDR blocks"
+  type        = list(string)
+  default     = ["10.2.10.0/24"]
 }
 
-variable "availability_zone" {
-  description = "Availability zone"
-  type        = string
-  default     = "ap-southeast-1a"
+variable "availability_zones" {
+  description = "Availability zones"
+  type        = list(string)
+  default     = ["ap-southeast-1a"]
 }
 
 variable "kubernetes_version" {

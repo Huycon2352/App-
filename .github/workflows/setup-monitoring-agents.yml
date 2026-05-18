@@ -43,25 +43,33 @@ jobs:
         with:
           version: 'latest'
 
+      - name: Install envsubst
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext-base
+
       # =====================================================
       # GET MANAGEMENT CLUSTER INFO
       # =====================================================
       - name: Get Prometheus Service Endpoint from Management Cluster
         run: |
-          # Connect to management cluster to get Prometheus endpoint
+          set -euo pipefail
+
           aws eks update-kubeconfig \
             --name management-cluster \
             --region ${{ env.AWS_REGION }} \
             --alias management-cluster
-          
-          # Get Prometheus ClusterIP (internal communication within dev cluster)
+
           PROMETHEUS_HOST=$(kubectl get svc -n ${{ env.PROMETHEUS_NAMESPACE }} \
             kube-prometheus-stack-prometheus \
-            -o jsonpath='{.spec.clusterIP}')
-          
-          echo "Prometheus Host (internal): $PROMETHEUS_HOST"
-          echo "PROMETHEUS_HOST=$PROMETHEUS_HOST" >> $GITHUB_ENV
-          echo "PROMETHEUS_PORT=9090" >> $GITHUB_ENV
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+          if [ -z "$PROMETHEUS_HOST" ]; then
+            echo "Prometheus service does not yet expose a load balancer hostname. Remote write across VPCs requires the internal LoadBalancer endpoint from the management cluster."
+            exit 1
+          fi
+
+          echo "PROMETHEUS_REMOTE_WRITE_URL=http://${PROMETHEUS_HOST}:9090/api/v1/write" >> $GITHUB_ENV
 
       # =====================================================
       # CONNECT TO DEV CLUSTER
@@ -124,10 +132,12 @@ jobs:
       # =====================================================
       - name: Deploy Prometheus Remote Write Agent
         run: |
-          # Create ConfigMap with remote_write configuration
-          kubectl apply -f monitoring/k8s-manifests/prometheus-agent-configmap.yml
-          
-          # Deploy Prometheus as agent mode
+          if [ -z "${PROMETHEUS_REMOTE_WRITE_URL:-}" ]; then
+            echo "PROMETHEUS_REMOTE_WRITE_URL is not set; aborting ConfigMap apply"
+            exit 1
+          fi
+
+          envsubst < monitoring/k8s-manifests/prometheus-agent-configmap.yml | kubectl apply -f -
           kubectl apply -f monitoring/k8s-manifests/prometheus-agent-deployment.yml
 
       # =====================================================

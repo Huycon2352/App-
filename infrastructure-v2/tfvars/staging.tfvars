@@ -1,0 +1,12 @@
+aws_region          = "ap-southeast-1"
+aws_account_id      = "248195880649"
+environment         = "staging"
+vpc_cidr            = "10.1.0.0/16"
+availability_zones  = ["ap-southeast-1a"]
+public_subnet_cidrs = ["10.1.1.0/24"]
+private_subnet_cidrs = ["10.1.10.0/24"]
+kubernetes_version  = "1.28"
+node_desired_size   = 2
+node_min_size       = 2
+node_max_size       = 4
+node_instance_types = ["t3.small"]

@@ -58,3 +58,18 @@ output "nat_gateway_id" {
   value       = aws_nat_gateway.main.id
   description = "NAT Gateway ID"
 }
+
+output "route_table_ids" {
+  value       = [aws_route_table.public.id, aws_route_table.private.id]
+  description = "Route table IDs associated with the VPC"
+}
+
+output "public_route_table_ids" {
+  value       = [aws_route_table.public.id]
+  description = "Public route table IDs"
+}
+
+output "private_route_table_ids" {
+  value       = [aws_route_table.private.id]
+  description = "Private route table IDs"
+}
