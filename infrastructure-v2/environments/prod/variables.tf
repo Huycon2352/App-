@@ -10,7 +10,7 @@ variable "aws_account_id" {
 }
 
 variable "environment" {
-  description = "Environment name"
+  description = "Environment name for the prod stack"
   type        = string
   default     = "prod"
 }

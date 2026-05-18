@@ -10,7 +10,7 @@ variable "aws_account_id" {
 }
 
 variable "environment" {
-  description = "Environment name"
+  description = "Environment name for the management stack"
   type        = string
   default     = "management"
 }

@@ -1,6 +1,6 @@
 output "remote_write_host" {
   description = "Host used by Prometheus agents for remote_write"
-  value       = local.discovered_remote_write_host
+  value       = local.resolved_remote_write_host
 }
 
 output "remote_write_url" {
