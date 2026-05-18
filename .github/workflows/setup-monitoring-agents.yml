@@ -65,13 +65,7 @@ jobs:
             -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 
           if [ -z "$PROMETHEUS_HOST" ]; then
-            PROMETHEUS_HOST=$(kubectl get svc -n ${{ env.PROMETHEUS_NAMESPACE }} \
-              kube-prometheus-stack-prometheus \
-              -o jsonpath='{.spec.clusterIP}')
-          fi
-
-          if [ -z "$PROMETHEUS_HOST" ]; then
-            echo "Failed to discover Prometheus endpoint in management cluster"
+            echo "Prometheus service does not yet expose a load balancer hostname. Remote write across VPCs requires the internal LoadBalancer endpoint from the management cluster."
             exit 1
           fi
 
