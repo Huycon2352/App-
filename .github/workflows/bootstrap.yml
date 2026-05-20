@@ -1,4 +1,4 @@
-name: Terraform Bootstrap v2
+name: Terraform Bootstrap 
 
 on:
   workflow_dispatch: # 🔥 chỉ chạy khi bấm nút
