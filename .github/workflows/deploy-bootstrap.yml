@@ -5,7 +5,7 @@ on:
 
 env:
   TF_WORKING_DIR: "./infrastructure-v2/bootstrap/backend"
-  AWS_REGION: "us-east-1"
+  AWS_REGION: "ap-southeast-1"
 
 jobs:
   bootstrap:
