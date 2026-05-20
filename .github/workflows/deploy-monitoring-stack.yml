@@ -22,6 +22,7 @@ on:
 
 env:
   AWS_REGION: "ap-southeast-1"
+  AWS_ACCOUNT_ID: "248195880649"
   MONITORING_DIR: "./monitoring-v2/monitor-stack"
   PROMETHEUS_NAMESPACE: "prometheus"
   MONITORING_NAMESPACE: "monitoring"
@@ -55,6 +56,11 @@ jobs:
             --name ${{ github.event.inputs.management_cluster_name }} \
             --region ${{ env.AWS_REGION }}
 
+      - name: Display Available Contexts
+        run: |
+          echo "Available kubeconfig contexts:"
+          kubectl config get-contexts
+
       # ============================================================
       # 2. Setup Helm
       # ============================================================
@@ -68,7 +74,9 @@ jobs:
       # ============================================================
       - name: Switch to Management Cluster Context
         run: |
-          kubectl config use-context ${{ github.event.inputs.management_cluster_name }}
+          MGMT_CONTEXT=$(kubectl config get-contexts | grep ${{ github.event.inputs.management_cluster_name }} | awk '{print $2}')
+          echo "Using Management context: ${MGMT_CONTEXT}"
+          kubectl config use-context ${MGMT_CONTEXT}
 
       - name: Create Prometheus Namespace (Management)
         run: |
@@ -97,7 +105,9 @@ jobs:
       # ============================================================
       - name: Switch to Dev Cluster Context
         run: |
-          kubectl config use-context ${{ github.event.inputs.dev_cluster_name }}
+          DEV_CONTEXT=$(kubectl config get-contexts | grep ${{ github.event.inputs.dev_cluster_name }} | awk '{print $2}')
+          echo "Using Dev context: ${DEV_CONTEXT}"
+          kubectl config use-context ${DEV_CONTEXT}
 
       - name: Create Monitoring Namespace (Dev)
         run: |
@@ -122,12 +132,13 @@ jobs:
       # ============================================================
       - name: Switch back to Management Cluster
         run: |
-          kubectl config use-context ${{ github.event.inputs.management_cluster_name }}
+          MGMT_CONTEXT=$(kubectl config get-contexts | grep ${{ github.event.inputs.management_cluster_name }} | awk '{print $2}')
+          kubectl config use-context ${MGMT_CONTEXT}
 
       - name: Get Grafana Password
         id: grafana_password
         run: |
-          GRAFANA_PASSWORD=$(kubectl get secret -n ${{ env.PROMETHEUS_NAMESPACE }} monitoring-grafana -o jsonpath="{.data.admin-password}" | base64 -d)
+          GRAFANA_PASSWORD=$(kubectl get secret -n ${{ env.PROMETHEUS_NAMESPACE }} monitoring-grafana -o jsonpath="{.data.admin-password}" 2>/dev/null | base64 -d || echo "admin")
           echo "grafana_password=${GRAFANA_PASSWORD}" >> $GITHUB_OUTPUT
           echo "::add-mask::${GRAFANA_PASSWORD}"
 
