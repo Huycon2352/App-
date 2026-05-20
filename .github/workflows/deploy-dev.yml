@@ -1,4 +1,4 @@
-name: Deploy Dev Environment
+name: Deploy Dev Environment V2
 
 on:
   workflow_dispatch:
