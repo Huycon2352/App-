@@ -1,4 +1,4 @@
-name: Deploy All Environments (Management -> Dev) - v2
+name: Deploy Infrastructure V2 (Management → Dev)
 
 on:
   workflow_dispatch:
