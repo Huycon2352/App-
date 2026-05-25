@@ -56,17 +56,16 @@ module "eks" {
 module "node_group" {
   source = "../../modules/node-group"
 
-  environment            = var.environment
-  cluster_name           = module.eks.cluster_id
-  node_role_arn          = module.iam.eks_node_role_arn
-  subnet_ids             = module.vpc.private_subnet_ids
-  kubernetes_version     = var.kubernetes_version
-  desired_size           = var.node_desired_size
-  min_size               = var.node_min_size
-  max_size               = var.node_max_size
-  instance_types         = var.node_instance_types
-  capacity_type          = "ON_DEMAND"
-  disk_size              = var.disk_size
-  ec2_ssh_key            = null
-  node_security_group_id = module.security_groups.eks_nodes_security_group_id
+  environment        = var.environment
+  cluster_name       = module.eks.cluster_id
+  node_role_arn      = module.iam.eks_node_role_arn
+  subnet_ids         = module.vpc.private_subnet_ids
+  kubernetes_version = var.kubernetes_version
+  desired_size       = var.node_desired_size
+  min_size           = var.node_min_size
+  max_size           = var.node_max_size
+  instance_types     = var.node_instance_types
+  capacity_type      = "ON_DEMAND"
+  disk_size          = var.disk_size
+  ec2_ssh_key        = null
 }
