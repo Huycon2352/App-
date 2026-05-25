@@ -15,7 +15,7 @@ on:
 env:
   AWS_REGION: "ap-southeast-1"
   AWS_ACCOUNT_ID: "248195880649"
-  MONITORING_DIR: "${{ github.workspace }}/monitoring-v2/monitor-stack"
+  MONITORING_DIR: "./monitoring-v2/monitor-stack"
   LOKI_NAMESPACE: "loki"
   LOGGING_NAMESPACE: "logging"
 
