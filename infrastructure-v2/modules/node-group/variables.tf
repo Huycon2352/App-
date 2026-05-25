@@ -65,3 +65,8 @@ variable "ec2_ssh_key" {
   type        = string
   default     = null
 }
+
+variable "node_security_group_id" {
+  description = "Security group ID to attach to worker nodes via launch template"
+  type        = string
+}
