@@ -54,7 +54,7 @@ module "eks" {
   node_role_name            = module.iam.eks_node_role_name 
 }
 
-}
+
 
 # ============================================================
 # Node Group Module
