@@ -52,3 +52,92 @@ resource "aws_iam_openid_connect_provider" "cluster" {
     ManagedBy   = "Terraform"
   }
 }
+
+
+########################### Add on - newwwwwwwwwwwwwww
+
+# ============================================================
+# BỔ SUNG: IRSA & EBS CSI Add-on cho K8s 1.34
+# ============================================================
+
+# 1. Định nghĩa Trust Policy cho EBS CSI dựa trên OIDC ngay trong module
+data "aws_iam_policy_document" "ebs_csi_assume_role_policy" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.cluster.url, "https://", "")}:sub"
+      values   = ["system:serviceaccount:kube-system:ebs-csi-controller-sa"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.cluster.url, "https://", "")}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    principals {
+      identifiers = [aws_iam_openid_connect_provider.cluster.arn]
+      type        = "Federated"
+    }
+  }
+}
+
+# 2. Tạo IAM Role cho EBS CSI Driver
+resource "aws_iam_role" "ebs_csi" {
+  name               = "${var.environment}-eks-ebs-csi-role"
+  assume_role_policy = data.aws_iam_policy_document.ebs_csi_assume_role_policy.json
+
+  tags = {
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+# 3. Gắn AWS Managed Policy cho Role
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+  role       = aws_iam_role.ebs_csi.name
+}
+
+# 4. Kích hoạt EKS Add-on AWS EBS CSI Driver
+resource "aws_eks_addon" "ebs_csi" {
+  cluster_name             = aws_eks_cluster.main.name
+  addon_name               = "aws-ebs-csi-driver"
+  addon_version            = var.ebs_csi_addon_version
+  service_account_role_arn = aws_iam_role.ebs_csi.arn
+
+  tags = {
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.ebs_csi
+  ]
+}
+
+# ============================================================
+# BỔ SUNG: Các Policy sửa lỗi Node Group bị giới hạn quyền
+# ============================================================
+resource "aws_iam_role_policy_attachment" "node_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+  role       = var.node_role_name
+}
+
+resource "aws_iam_role_policy_attachment" "cni_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  role       = var.node_role_name
+}
+
+resource "aws_iam_role_policy_attachment" "ecr_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+  role       = var.node_role_name
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  role       = var.node_role_name
+}
