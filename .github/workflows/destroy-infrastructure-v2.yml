@@ -30,8 +30,8 @@ jobs:
   #       working-directory: ./infrastructure-v2/environments/management
   #       run: terraform destroy -auto-approve
 
-  # destroy-dev:
-    needs: destroy-management
+   destroy-dev:
+    #needs: destroy-management
     runs-on: ubuntu-latest
     
     steps:
