@@ -9,10 +9,7 @@ output "eks_node_role_arn" {
 }
 
 ######################## addd-newwwwwwwwwwwww
-output "eks_node_role_name" {
-  value       = aws_iam_role.node.name # Thay "node" bằng tên resource aws_iam_role tạo node group role của bạn
-  description = "Tên của IAM Role dành cho Node Group"
-}
+
 ########################
 
 
