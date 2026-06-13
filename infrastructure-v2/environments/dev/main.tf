@@ -51,7 +51,8 @@ module "eks" {
 
   # === adddd --newwwwwwwwwwww ===
   ebs_csi_addon_version     = "v1.51.0-eksbuild.1"
-  node_role_name            = module.iam.eks_node_role_name 
+  node_role_name            = element(split("/", module.iam.eks_node_role_arn), length(split("/", module.iam.eks_node_role_arn)) - 1)
+
 }
 
 
