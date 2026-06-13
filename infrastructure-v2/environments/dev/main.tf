@@ -48,6 +48,12 @@ module "eks" {
   kubernetes_version        = var.kubernetes_version
   subnet_ids                = module.vpc.private_subnet_ids
   cluster_security_group_id = module.security_groups.eks_cluster_security_group_id
+
+  # === adddd --newwwwwwwwwwww ===
+  ebs_csi_addon_version     = "v1.51.0-eksbuild.1"
+  node_role_name            = module.iam.eks_node_role_name 
+}
+
 }
 
 # ============================================================
